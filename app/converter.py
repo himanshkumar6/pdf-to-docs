@@ -1,37 +1,18 @@
-import asyncio
-import os
+from pdf2docx import Converter
 from pathlib import Path
+import asyncio
 
-async def convert_pdf_to_docx_libreoffice(input_pdf: Path, output_dir: Path) -> Path:
-    """
-    Converts a text-based PDF to DOCX using LibreOffice in headless mode.
-    """
-    try:
-        # Avoid creating zombie processes
-        process = await asyncio.create_subprocess_exec(
-            "soffice",
-            "--headless",
-            "--invisible",
-            "--nologo",
-            "--nodefault",
-            "--convert-to", "docx",
-            "--outdir", str(output_dir),
-            str(input_pdf),
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        
-        stdout, stderr = await process.communicate()
-        
-        if process.returncode != 0:
-            error_msg = stderr.decode() if stderr else "Unknown error"
-            raise RuntimeError(f"LibreOffice conversion failed: {error_msg}")
-            
-        # Determine the expected output path
-        expected_output = output_dir / f"{input_pdf.stem}.docx"
-        if not expected_output.exists():
-            raise FileNotFoundError(f"DOCX not generated at {expected_output}")
-            
-        return expected_output
-    except Exception as e:
-        raise RuntimeError(f"LibreOffice conversion error: {e}")
+
+async def convert_pdf_to_docx_libreoffice(pdf_path, output_dir):
+
+    output_file = Path(output_dir) / "output.docx"
+
+    def run_conversion():
+        cv = Converter(str(pdf_path))
+        cv.convert(str(output_file))
+        cv.close()
+
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, run_conversion)
+
+    return output_file
