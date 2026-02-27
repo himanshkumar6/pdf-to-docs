@@ -2,13 +2,11 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from pathlib import Path
 import tempfile
-import os
 import traceback
 
 from app.utils import save_upload_file_tmp, cleanup_files
 from app.analyzer import is_text_based_pdf
 from app.converter import convert_pdf_to_docx_libreoffice
-from app.ocr import convert_scanned_pdf_to_docx_ocr
 
 
 # --------------------------------------------------
@@ -16,19 +14,23 @@ from app.ocr import convert_scanned_pdf_to_docx_ocr
 # --------------------------------------------------
 
 app = FastAPI(
-    title="Hybrid PDF to DOCX Converter",
-    description="Convert Text & Scanned PDFs into editable DOCX",
+    title="PDF to DOCX Converter",
+    description="Convert text-based PDFs into editable DOCX files",
     version="1.0.0"
 )
 
 
 # --------------------------------------------------
-# Health Check Route (Render uses this)
+# Health Check Route
 # --------------------------------------------------
 
 @app.get("/")
 async def root():
-    return {"status": "running", "service": "PDF → DOCX Converter"}
+    return {
+        "status": "running",
+        "service": "PDF → DOCX Converter",
+        "ocr": "disabled (Render Free Plan)"
+    }
 
 
 # --------------------------------------------------
@@ -58,13 +60,12 @@ async def convert_pdf(
         print(f"\n📄 Received File: {file.filename}")
 
         # ---------------------------
-        # Save Upload
+        # Save uploaded file
         # ---------------------------
         saved_pdf_path = await save_upload_file_tmp(file)
 
         # ---------------------------
-        # Create temp output dir
-        # Render-safe (/tmp storage)
+        # Create temp directory
         # ---------------------------
         output_dir = Path(tempfile.mkdtemp(dir="/tmp"))
 
@@ -77,7 +78,7 @@ async def convert_pdf(
         # TEXT PDF → LibreOffice
         # ---------------------------
         if is_text_pdf:
-            print("✅ TEXT PDF detected → LibreOffice pipeline")
+            print("✅ TEXT PDF detected → LibreOffice")
 
             docx_path = await convert_pdf_to_docx_libreoffice(
                 saved_pdf_path,
@@ -85,14 +86,14 @@ async def convert_pdf(
             )
 
         # ---------------------------
-        # SCANNED PDF → OCR
+        # SCANNED PDF BLOCKED
         # ---------------------------
         else:
-            print("🧠 SCANNED PDF detected → HuggingFace OCR")
+            print("⚠️ Scanned PDF detected — OCR disabled")
 
-            docx_path = await convert_scanned_pdf_to_docx_ocr(
-                saved_pdf_path,
-                output_dir
+            raise HTTPException(
+                status_code=400,
+                detail="Scanned PDFs are currently not supported. Please upload a text-based PDF."
             )
 
         # ---------------------------
@@ -102,7 +103,7 @@ async def convert_pdf(
             raise Exception("DOCX generation failed")
 
         # ---------------------------
-        # Background Cleanup
+        # Cleanup after response
         # ---------------------------
         background_tasks.add_task(
             cleanup_files,
@@ -113,13 +114,16 @@ async def convert_pdf(
         print("✅ Conversion Successful")
 
         # ---------------------------
-        # Return File
+        # Return DOCX
         # ---------------------------
         return FileResponse(
             path=docx_path,
             filename=f"{Path(file.filename).stem}.docx",
             media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         )
+
+    except HTTPException:
+        raise
 
     except Exception as e:
         print("❌ Conversion Error")
